@@ -5,6 +5,7 @@ from airflow.sdk import task, dag, TaskGroup
 from airflow.utils.email import send_email
 from airflow.providers.standard.operators.python import PythonOperator, BranchPythonOperator
 from airflow.providers.standard.sensors.python import PythonSensor
+from airflow.models.xcom_arg import XComArg
 from airflow.exceptions import AirflowSkipException
 from pendulum import timezone
 from kafka.admin import NewTopic
@@ -17,7 +18,7 @@ from plugins.NJRParser import NJRParser
 
 def airflow_scrape_data(**kwargs):
 
-    obj = Scraper()
+    obj = Scraper(testing=False)
     obj.main(**kwargs)
 
 
@@ -42,10 +43,12 @@ def branching_decision(**kwargs):
 def latest_data_available():
 
     obj = Scraper()
-    return obj.airflow_status_check()
+    status, current_data, latest_data = obj.airflow_status_check()
+
+    return {'status': status, 'current_data': current_data, 'latest_data': latest_data}
 
 
-def new_msgs_available(logger_, topic='njrdata'):
+def new_msgs_available(logger_=None, topic='njrdata'):  # test topic name is 'test_njr'
 
     offset_dict = {}
     # KafkaConsumer not thread safe, so I need to create one specifically for this task
@@ -58,6 +61,7 @@ def new_msgs_available(logger_, topic='njrdata'):
     try:
         if not partitions:
             logger_.warning(f"No partitions found for topic {topic}")
+            # print(f"No partitions found for topic {topic}")
 
             raise AttributeError(f"No partitions created for {topic}")
 
@@ -79,19 +83,24 @@ def new_msgs_available(logger_, topic='njrdata'):
             logger_.info(
                 f"Partition {tp.partition}: committed={committed}, latest={latest}, lag={lag}"
             )
+            # print(
+            #     f"Partition {tp.partition}: committed={committed}, latest={latest}, lag={lag}"
+            # )
 
             if lag > 0:
                 offset_dict[tp] = True
 
         if True in list(offset_dict.values()):
             logger_.info(f"New data found for {topic}")
+            # print(f"New data found for {topic}")
 
             return True
         else:
             return False
 
     except AttributeError:
-        logger_.info(f"No partitions found for topic {topic}")
+        # logger_.info(f"No partitions found for topic {topic}")
+        print(f"No partitions found for topic {topic}")
 
         return False
 
@@ -136,7 +145,7 @@ def check_kafka_connection(logger_):
 
 # Task 1a: Check if the correct topics have been created
 @task(task_id="create_topics")
-def create_kafka_topics(logger_, topic: str = 'njrdata', status: bool = True):
+def create_kafka_topics(logger_=None, topic: str = 'njrdata', status: bool = True):
 
     if status is True:
 
@@ -147,6 +156,7 @@ def create_kafka_topics(logger_, topic: str = 'njrdata', status: bool = True):
 
         available_topics = admin_client.list_topics()
         logger_.info(f'Current existing topics: {available_topics}')
+        # print(f'Current existing topics: {available_topics}')
 
         try:
             if topic not in available_topics:
@@ -161,8 +171,10 @@ def create_kafka_topics(logger_, topic: str = 'njrdata', status: bool = True):
                 )
         except kafka.errors.TopicAlreadyExistsError:
             logger_.info(f'Topic {topic} already exists')
+            # print(f'Topic {topic} already exists')
         else:
             logger_.info(f'Topic {topic} created in Apache Kafka topic list')
+            # print(f'Topic {topic} created in Apache Kafka topic list')
 
         return admin_client.list_topics()
 
@@ -193,21 +205,21 @@ def ncjar_pipeline(**kwargs):
     f_handler = kwargs["f_handler"]
     c_handler = kwargs["c_handler"]
 
-    kafka_status = check_kafka_connection()
-    _ = create_kafka_topics(logger, status=kafka_status)
+    kafka_status = check_kafka_connection(logger)
+    _ = create_kafka_topics(logger_=logger, status=kafka_status)
+    # _ = create_kafka_topics(status=True)
 
-    latest_data_avail, current_data, previous_data = PythonSensor(
+    latest_data_avail = PythonOperator(
         task_id='latest_data_available',
         python_callable=latest_data_available,
-        poke_interval=86400,
-        timeout=90000,
-        mode='reschedule'
+        multiple_outputs=True
     )
 
     branch_decision = BranchPythonOperator(
         task_id='branching_decision',
         python_callable=branching_decision,
-        op_kwargs={'status': latest_data_avail},
+        op_kwargs={'status': XComArg(latest_data_avail, key='status')},
+        # op_kwargs={'status': True},
         trigger_rule='none_failed'
     )
 
@@ -222,8 +234,8 @@ def ncjar_pipeline(**kwargs):
         start_status = PythonOperator(
             task_id='start_email',
             python_callable=status_email,
-            op_kwargs={'phase': 'starting', 'current_data': current_data,
-                       'previous_data': previous_data}
+            op_kwargs={'phase': 'starting', 'current_data': XComArg(latest_data_avail, key='current_data'),
+                       'previous_data': XComArg(latest_data_avail, key='latest_data')}
         )
 
         scrape_data = PythonOperator(
@@ -243,7 +255,7 @@ def ncjar_pipeline(**kwargs):
         )
 
         end_status = PythonOperator(
-            task_id='start_email',
+            task_id='end_email',
             python_callable=status_email,
             op_kwargs={'phase': 'ending'}
         )
@@ -255,4 +267,8 @@ def ncjar_pipeline(**kwargs):
     latest_data_avail >> branch_decision
     branch_decision >> etl_pipeline
     branch_decision >> skip_all_tasks
+
+
+ncjar_pipeline()
+
 
