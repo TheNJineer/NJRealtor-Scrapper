@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from utility_func import create_sql_engine, create_kafka_producer
+from utility_func import create_sql_engine, create_kafka_producer, logger_decorator
 from itertools import product
 from tqdm.auto import trange
 import datetime
@@ -17,9 +17,10 @@ from requests.exceptions import RequestException
 
 class Scraper:
 
-    def __init__(self):
+    def __init__(self, testing=False):
         self.counties = []
         self.towns = []
+        self.testing = testing
         self.session = None
         self.producer = create_kafka_producer('njrscrapper_producer')
         self.engine = create_sql_engine('nj_realtor_data')
@@ -36,7 +37,6 @@ class Scraper:
         self.latest_nj_data()  # Observe what's the latest data available in the portal
         self.latest_event_data()  # Observe what's the latest scraping event to occur
 
-
     """ 
     ______________________________________________________________________________________________________________
                             Use this section to house the instance, class and static functions
@@ -45,13 +45,18 @@ class Scraper:
 
     def airflow_status_check(self):
 
-        current_data = self.current_month + ' ' + self.current_year
-        last_data = self.last_ran_month + ' ' + self.last_ran_year
+        current_data = self.current_month + ' ' + str(self.current_year)
+        last_data = self.last_ran_month + ' ' + str(self.last_ran_year)
 
         try:
             assert current_data != last_data
+            print(f' ==== LATEST DATA ACQUIRED: {last_data} ====')
+            print(f' ==== LATEST DATA AVAILABLE: {current_data} ====')
+
             return True, current_data, last_data
+
         except AssertionError:
+
             return False, None, None
 
     # Function which scrapes the cities and counties from the njrealtor 10k state page
@@ -181,10 +186,8 @@ class Scraper:
     def create_session_object(s):
 
         load_dotenv("/opt/airflow/.env")
-        # pw = os.getenv("NJREALTOR_PASSWORD")
-        # user = os.getenv("NJREALTOR_USERNAME")
-        pw = 'We44Qyt78Nvr!'
-        user = 'jibreelhameed@kw.com'
+        pw = os.getenv("NJREALTOR_PASSWORD")
+        user = os.getenv("NJREALTOR_USERNAME")
         login_page = 'https://www.njrealtor.com/login/?rd=10&passedURL=/goto/10k/'
         data_portal = 'https://www.njrealtor.com/ramco-api/web-services/login_POST.php'
 
@@ -376,6 +379,7 @@ class Scraper:
             response = true_session.get(base_url)
 
         if response.status_code == 200:
+            print(' ==== LOGIN SUCCESSFUL === ')
             page_source = response.text
             soup = BeautifulSoup(page_source, 'html.parser')
             self.area_results(soup)
@@ -420,7 +424,6 @@ class Scraper:
 
         kwargs['base_url'] = 'http://njar.stats.10kresearch.com/docs/lmu/'
         kwargs['params'] = {'src': 'Page'}
-        kwargs['producer'] = 'PUT KAFKA PRODUCER HERE'
         logger = kwargs['logger']
         first_year = list(self.timeframe.keys())[0]
 
@@ -438,16 +441,19 @@ class Scraper:
             data_len = len(list(product(towns, [year], months_dict.values())))
             self.event_log['expected_data'][-1] += data_len
 
-            for _, data in zip(trange(data_len, desc='Downloaded PDFs'), Scraper.value_generator(**kwargs)):
+            for idx, data in zip(trange(data_len, desc='Downloaded PDFs'), Scraper.value_generator(**kwargs)):
                 kwargs['data'] = data
                 kwargs['url'], kwargs['key'] = Scraper.create_url_and_key(**kwargs)
                 self.download_pdf(**kwargs)
+
+                if self.testing is True:
+                    if idx == 30:
+                        break
 
         logger.info('==== DOWNLOAD FOR TARGETED DATA HAS BEEN COMPLETED ====')
 
         end_time = datetime.now()
         self.event_log['run_time'].append(str(end_time - start_time))
-        # END THE KAFKA PRODUCER CONNECTION HERE
 
     @staticmethod
     def value_generator(**kwargs):
@@ -456,6 +462,7 @@ class Scraper:
             for m in kwargs['municipalities']:
                 yield m, kwargs['year'], num, month
 
+    @logger_decorator
     def main(self, **kwargs):
 
         logger = kwargs['logger']
@@ -487,12 +494,13 @@ class Scraper:
             logger.removeHandler(f_handler)
             logger.removeHandler(c_handler)
             logging.shutdown()
+            self.producer.close()
 
 
-if __name__ == '__main__':
-
-    obj = Scraper()
-    obj.main()
-
-    print('Done')
+# if __name__ == '__main__':
+#
+#     obj = Scraper()
+#     obj.main()
+#
+#     print('Done')
 
