@@ -34,7 +34,7 @@ def create_kafka_consumer(client_id, group_id):
         enable_auto_commit=False,
         key_deserializer=lambda k: k.decode("utf-8"),
         heartbeat_interval_ms=5000,  # Send heartbeats in 5s intervals
-        session_timeout_ms=45000,  # How long the consumer waits for heartbeats before considered dead: 45 secondds
+        session_timeout_ms=45000,  # How long the consumer waits for heartbeats before considered dead: 45 seconds
         max_poll_interval_ms=3000000,  # How long the consumer goes in between successful polls before considered "stuck": 50 minutes
         max_poll_records=100,  # Max number of records pulled per poll request
     )
@@ -83,7 +83,7 @@ def create_sql_engine(database: str, remote=True):
         load_dotenv("/opt/airflow/.env")
         connection_str = os.getenv("POSTGRES_AWS_CONN")
         engine = create_engine(f"postgresql+psycopg2://{connection_str}:5432/{database}", echo=False, future=False)
-        # engine = create_engine(f"postgresql+psycopg2://postgres:Xy14RNw02SmD@database-1.chuq28s6itob.us-east-2.rds.amazonaws.com:5432/gsmls")
+
     else:
         base, user, pw = get_us_pw("PostgreSQL")
         engine = create_engine(f"postgresql://{user}:{pw}@{base}:5432/{database}", echo=False, future=False)
