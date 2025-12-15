@@ -1,14 +1,15 @@
 import os
-import json
 import pandas as pd
 import re
-import PyPDF2
+import pypdf
 from datetime import datetime, timedelta
 from tqdm import tqdm
+from io import BytesIO
+from tabulate import tabulate
 from utility_func import create_sql_engine, create_kafka_consumer
 from kafka.errors import KafkaTimeoutError, RebalanceInProgressError
 from sqlalchemy.exc import DataError, IntegrityError
-from psycopg2.errors import SyntaxError
+# from psycopg2.errors import SyntaxError
 from sqlalchemy.exc import DatabaseError
 
 
@@ -16,7 +17,7 @@ class NJRParser:
 
     def __init__(self):
         self.engine = self.engine = create_sql_engine('nj_realtor_data')
-        self.consumer = create_kafka_consumer('njrdata_consumer', 'njrdata_consumer')
+        self.consumer = create_kafka_consumer('njrdata_consumer', 'ncjar_data_consumer')
         self.raw_data = NJRParser.create_data_dict()
 
     @staticmethod
@@ -40,6 +41,46 @@ class NJRParser:
                 break
 
         return pdf_list, key_list
+
+    def bytes2text(self, pdf_list, key_list):
+        """
+        Extracts the real estate data from that pdf bytes and stores as string text in list for later processing
+
+        :param pdf_list:
+        :param key_list:
+        :return: None
+        """
+        new_pdf_list = []
+        # base_path = 'C:\\Users\\Omar\\Desktop\\Python Temp Folder'
+
+        # Modify once Kafka is implemented. Will loop through pdf_list instead of key_list
+        # Also will not be using os. Will loop through list of byte objects
+        for _, pdf, key in zip(tqdm(range(len(pdf_list)), desc='PDFs', colour='green', position=1), pdf_list, key_list):
+            try:
+                if isinstance(pdf, str):
+                    if os.path.exists(pdf):
+                        with open(pdf, 'rb') as reader:
+                            pdfread = pypdf.PdfReader(reader)
+                            page = pdfread.pages[0]
+                            target = page.extract_text()
+                            new_pdf_list.append(target)
+
+                elif isinstance(pdf, bytes):
+                    # Expects a file-like object which BytesIO creates
+                    pdfread = pypdf.PdfReader(BytesIO(pdf))
+                    page = pdfread.pages[0]
+                    target = page.extract_text()
+                    new_pdf_list.append(target)
+
+                else:
+                    new_pdf_list.append(None)
+
+            except pypdf._reader.EmptyFileError:
+                print(f'The file {key} does not have data. File possibly corrupted')
+                new_pdf_list.append(None)
+
+        print(f' ==== PDF LIST LEN: {len(new_pdf_list)}')
+        return new_pdf_list
 
     def consume_data(self):
 
@@ -71,6 +112,8 @@ class NJRParser:
 
                 elif ((datetime.now() - start_time) < timedelta(minutes=12)) and len(pdf_list) > 0:
                     # self.consumer.commit()
+                    print(' ==== NEW DATA RETURNED ==== ')
+                    print(f' ==== pdf list len: {len(pdf_list)} ==== ')
                     return pdf_list, keys_list
 
                 else:
@@ -144,56 +187,17 @@ class NJRParser:
 
             for record in messages_list:
 
-                try:
-                    json_obj = json.loads(json.loads(record.value))
+                sub_list.append(record.value)
+                if record.key != 'null':
+                    key_list.append(record.key)
+                else:
+                    key_list.append(None)
 
-                    df = pd.DataFrame(data=json_obj['data'],
-                                      index=json_obj['index'],
-                                      columns=json_obj['columns'])
-                    sub_list.append(df)
-                    if record.key != 'null':
-                        key_list.append(record.key)
-
-                except json.decoder.JSONDecodeError:
-
-                    pass
         if len(sub_list) > 0:
             return sub_list, key_list
+
         else:
             return None, None
-
-    def extract_re_data(self, pdf_list, key_list):
-        """
-        Extracts the real estate data from that pdf bytes and stores as string text in list for later processing
-
-        :param pdf_list:
-        :param key_list:
-        :return: None
-        """
-        new_pdf_list = []
-        base_path = 'C:\\Users\\Omar\\Desktop\\Python Temp Folder'
-        # town, county, month, year = Scraper.parse_pdfname(pdfname)
-
-        # Modify once Kafka is implemented. Will loop through pdf_list instead of key_list
-        # Also will not be using os. Will loop through list of byte objects
-        for _, pdf, key in zip(tqdm(range(len(pdf_list)), desc='PDFs', colour='green', position=1), pdf_list, key_list):
-
-            if os.path.exists(pdf):
-
-                try:
-                    with open(pdf, 'rb') as reader:
-                        pdfread = PyPDF2.PdfReader(reader)
-                        page = pdfread.pages[0]
-                        target = page.extract_text()
-                        new_pdf_list.append(target)
-
-                except PyPDF2._reader.EmptyFileError:
-                    print(f'The file {key} does not have data. File possibly corrupted')
-                    new_pdf_list.append(None)
-            else:
-                new_pdf_list.append(None)
-
-        return new_pdf_list
 
     @staticmethod
     def find_closed_sales(pdf_text):
@@ -332,10 +336,10 @@ class NJRParser:
         :param pdf_text:
         :return:
         """
-
+        # print(pdf_text)
         month_pattern = re.compile(
             r'(January|February|March|April|May|June|July|August|September|October|November|December)'
-            r'\sYear\sto\sDate\sSingle\sFamily')
+            r'\s?Year\s?to\s?Date\s?Single\s?Family')
 
         return month_pattern.search(pdf_text).group(1)
 
@@ -486,7 +490,6 @@ class NJRParser:
         """
         UPDATE
 
-        :param logger:
         :return:
         """
 
@@ -501,10 +504,12 @@ class NJRParser:
             db.drop_duplicates(subset=['municipality', 'month_', 'year_'], keep='first', inplace=True, ignore_index=True)
             db['month_'] = db['month_'].apply(NJRParser.month2num)
             db['year_'] = db['year_'].astype('int64')
-
+            db['polpr'] = db['polpr'] / 100.0
 
             if not pd.read_sql_table(table_name, self.engine.raw_connection()).empty:
                 db.to_sql(table_name, self.engine.raw_connection(), if_exists='append', chunksize=1000, index=False)
+            # print(tabulate(db[list(db.columns)[0:11]], headers=list(db.columns)[0:11]))
+            # print(tabulate(db[list(db.columns)[11:]], headers=list(db.columns)[11:]))
 
             print(f' ==== NJ REALTOR DATA HAS BEEN SAVED TO {table_name} IN POSTGRESQL ==== ')
 
@@ -537,7 +542,7 @@ class NJRParser:
             town = ' '.join(town_directory)
             county = None
 
-        return town, county, month, year
+        return town.lstrip('"'), county, month, year
 
     def prepare_data(self, pdf_list, key_list):
 
@@ -558,18 +563,30 @@ class NJRParser:
 
     def main(self):
 
-        print(' ==== EXTRACTING DATA FROM KAFKA==== ')
-        pdf_list, key_list = self.fake_consume_data()
-        print(' ==== TRANSFORMING KAFKA DATA INTO STRING TEXT ==== ')
-        text_data_list = self.extract_re_data(pdf_list, key_list)
-        print(' ==== SCRAPPING TEXT DATA ==== ')
-        self.prepare_data(text_data_list, key_list)
-        print(' ==== SAVING DATA ==== ')
-        self.pandas2sql()
+        print(' ==== EXTRACTING DATA FROM KAFKA ==== ')
+        self.consumer.subscribe(['njrdata'])
+
+        while True:
+            # pdf_list, key_list = self.fake_consume_data()
+            pdf_list, key_list = self.consume_data()
+
+            if pdf_list is not None:
+                print(' ==== TRANSFORMING KAFKA DATA INTO STRING TEXT ==== ')
+                text_data_list = self.bytes2text(pdf_list, key_list)
+                print(' ==== SCRAPPING TEXT DATA ==== ')
+                self.prepare_data(text_data_list, key_list)
+                # print(' ==== TEST CHECKPOINT: SAVING DATA ==== ')
+                print(' ==== SAVING DATA ==== ')
+                self.pandas2sql()
+            else:
+                break
+
+        print(' ==== DATA EXTRACTION FROM KAFKA IS COMPLETE ==== ')
+        self.consumer.close()
 
 
-if __name__ == '__main__':
-
-    obj = NJRParser()
-    obj.main()
+# if __name__ == '__main__':
+#
+#     obj = NJRParser()
+#     obj.main()
 
