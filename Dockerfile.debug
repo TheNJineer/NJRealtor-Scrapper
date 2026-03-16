@@ -1,0 +1,13 @@
+FROM python:3.11-slim-bookworm
+
+WORKDIR /workspace
+
+# -------------------------
+# Python dependencies
+# -------------------------
+COPY debug-requirements.txt requirements.txt
+
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt
+
+CMD ["bash"]

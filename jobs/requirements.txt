@@ -1,0 +1,8 @@
+dotenv==0.9.9
+docker==7.1.0
+cramjam  # fastparquet dependency
+fastparquet
+fsspec  # fastparaquet dependency
+pyarrow
+
+git+https://github.com/TheNJineer/NJRealtor-Scrapper.git@v0.1.0#subdirectory=ncjar

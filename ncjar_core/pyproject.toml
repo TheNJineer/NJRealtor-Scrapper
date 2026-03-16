@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+requires-python = ">=3.10"
+name = "ncjar"
+version = "0.1.0"
+description = "Core NCJAR packages to be used in the Airflow pipeline"
+
+dependencies = [
+    "beautifulsoup4==4.14.3",
+    "docker==7.1.0",
+    "filelock==3.20.3",
+    "kafka-python==2.2.15",
+    "numpy>=1.26.4,<2.0.0",
+    "openpyxl==3.1.5",
+    "pandas==2.3.3",
+    "pendulum==3.2.0",
+    "psycopg2-binary",
+    "pypdf==6.4.1",
+    "requests==2.32.5",
+    "requests-futures==1.0.2",
+    "SQLAlchemy==2.0.43",
+    "tqdm==4.67.1",
+]

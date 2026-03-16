@@ -1,8 +1,4 @@
 import os
-from dotenv import load_dotenv
-from utility_func import create_sql_engine, create_kafka_producer, logger_decorator
-from itertools import product
-from tqdm.auto import trange
 import datetime
 from datetime import datetime, date, timedelta
 import logging
@@ -11,6 +7,12 @@ import re
 import time
 import pandas as pd
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+from itertools import product
+from kafka.errors import KafkaTimeoutError
+from pprint import pprint
+from tqdm import tqdm
+from ncjar.utility_func import create_sql_engine, create_kafka_producer, logger_decorator, get_filepath
 from sqlalchemy.exc import ProgrammingError
 from requests.exceptions import RequestException
 
@@ -23,7 +25,7 @@ class Scraper:
         self.testing = testing
         self.session = None
         self.producer = create_kafka_producer('njrscrapper_producer')
-        self.engine = create_sql_engine('nj_realtor_data')
+        self.engine = create_sql_engine('nj_realtor_data', True)
         self.event_log = Scraper.create_event_log()
         self.timeframe = {}
         self.run_number = None
@@ -53,11 +55,11 @@ class Scraper:
             print(f' ==== LATEST DATA ACQUIRED: {last_data} ====')
             print(f' ==== LATEST DATA AVAILABLE: {current_data} ====')
 
-            return True, current_data, last_data
+            return {'new_data_avail': True, 'current_data': current_data, 'last_data': last_data}
 
         except AssertionError:
 
-            return False, None, None
+            return {'new_data_avail': False, 'current_data': None, 'last_data': None}
 
     # Function which scrapes the cities and counties from the njrealtor 10k state page
     def area_results(self, soup):
@@ -182,10 +184,12 @@ class Scraper:
                     if int(num) <= int(current_month):
                         self.timeframe[year][num] = month
 
+        print(f' ==== TARGET TIMEFRAME ==== \n{self.timeframe}')
+
     @staticmethod
     def create_session_object(s):
 
-        load_dotenv("/opt/airflow/.env")
+        load_dotenv(get_filepath("env"))
         pw = os.getenv("NJREALTOR_PASSWORD")
         user = os.getenv("NJREALTOR_USERNAME")
         login_page = 'https://www.njrealtor.com/login/?rd=10&passedURL=/goto/10k/'
@@ -276,13 +280,29 @@ class Scraper:
 
                 if 'PDF' in check_pdf:
                     # print(f' ==== {kwargs['key']} PRODUCED TO KAFKA ==== ')
-                    self.producer.send('njrdata', key=kwargs['key'], value=reader.content)
+                    try:
+                        if self.testing is False:
+                            results = self.producer.send('njrdata', key=kwargs['key'], value=reader.content)
+                        else:
+                            results = self.producer.send('njrdata-test', key=kwargs['key'], value=reader.content)
+
+                        results_metadata = results.get(timeout=10)
+
+                    except KafkaTimeoutError as e:
+                        print(f' ==== {e} ==== ')
+                        print(f' ==== {kwargs["key"]} WAS NOT PRODUCED TO KAFKA ==== ')
+
+                    # else:
+                    #     # Block used for debugging purposes
+                    #     print(f' ==== FILE: {kwargs["key"]} TOPIC: {results_metadata.topic} '
+                    #           f'PARTITION: {results_metadata.partition} OFFSET: {results_metadata.offset}')
+
                     self.event_log['data_produced'][-1] += 1
                 else:
-                    kwargs['logger'].warning(f' ==== WARNING! {kwargs['key']} IS POSSIBLY A CORRUPTED FILE ==== ')
+                    kwargs['logger'].warning(f' ==== WARNING! {kwargs["key"]} IS POSSIBLY A CORRUPTED FILE ==== ')
 
             except RequestException as e:
-                kwargs['logger'].error(f' ==== REQUESTS ERROR: {kwargs['key']}\n{e}')
+                kwargs['logger'].error(f' ==== REQUESTS ERROR: {kwargs["key"]}\n{e}')
 
     # This is an instance method because I'm using a static method inside the function which may not be able
     def event_log_update(self, logger):
@@ -306,8 +326,7 @@ class Scraper:
         db['run_time'] = pd.to_timedelta(db['run_time'])
         db['run_time'] = db['run_time'].astype('str')
 
-        if not pd.read_sql_table(table_name, self.engine.raw_connection()).empty:
-            db.to_sql(table_name, self.engine.raw_connection(), if_exists='append', index=False)
+        db.to_sql(table_name, con=self.engine, if_exists='append', index=False)
 
         # print(f'==== RUN NUMBER {self.run_number} HAS BEEN SAVED TO {table_name} in POSTGRESQL')
         logger.info(f'==== RUN NUMBER {self.run_number} HAS BEEN SAVED TO {table_name} in POSTGRESQL')
@@ -441,13 +460,13 @@ class Scraper:
             data_len = len(list(product(towns, [year], months_dict.values())))
             self.event_log['expected_data'][-1] += data_len
 
-            for idx, data in zip(trange(data_len, desc='Downloaded PDFs'), Scraper.value_generator(**kwargs)):
+            for idx, data in zip(tqdm(range(data_len), desc='Downloaded PDFs'), Scraper.value_generator(**kwargs)):
                 kwargs['data'] = data
                 kwargs['url'], kwargs['key'] = Scraper.create_url_and_key(**kwargs)
                 self.download_pdf(**kwargs)
 
                 if self.testing is True:
-                    if idx == 30:
+                    if idx == 20:
                         break
 
         logger.info('==== DOWNLOAD FOR TARGETED DATA HAS BEEN COMPLETED ====')
@@ -481,20 +500,19 @@ class Scraper:
                 self.create_timeframe()
                 logger.info(' ==== STARTING THE DOWNLOAD FOR TARGETED DATA ==== ')
                 self.njr10k(**kwargs)
-                self.event_log_update(logger)
+                # self.event_log_update(logger)
 
         except KeyboardInterrupt:
             print()
             print(' ==== KEYBOARD INTERRUPT ==== ')
         except AssertionError as ae:
-            # Send message that says no new data is available
-            # Tell airflow to try again tomorrow
-            pass
+            print(f'{ae}')
         finally:
             logger.removeHandler(f_handler)
             logger.removeHandler(c_handler)
             logging.shutdown()
-            self.producer.close()
+            self.producer.flush()
+            # self.producer.close()
 
 
 # if __name__ == '__main__':
