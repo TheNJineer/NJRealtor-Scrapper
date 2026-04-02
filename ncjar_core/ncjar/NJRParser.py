@@ -3,8 +3,9 @@ import pandas as pd
 import re
 import pypdf
 from datetime import datetime, timedelta
-from tqdm import tqdm
 from io import BytesIO
+from tabulate import tabulate
+from tqdm import tqdm
 from ncjar.utility_func import create_sql_engine, create_kafka_consumer
 from kafka.errors import KafkaTimeoutError, RebalanceInProgressError
 from sqlalchemy.exc import DataError, IntegrityError
@@ -514,8 +515,6 @@ class NJRParser:
             db['polpr'] = db['polpr'] / 100.0
 
             db.to_sql(table_name, con=self.engine, if_exists='append', chunksize=1000, index=False)
-            # print(tabulate(db[list(db.columns)[0:11]], headers=list(db.columns)[0:11]))
-            # print(tabulate(db[list(db.columns)[11:]], headers=list(db.columns)[11:]))
 
             print(f' ==== NJ REALTOR DATA HAS BEEN SAVED TO {table_name} IN POSTGRESQL ==== ')
 
@@ -567,6 +566,29 @@ class NJRParser:
                 print(f' ==== DATA FROM {key} POSSIBLY CORRUPTED ==== ')
                 self.data_na(town, month, year)
 
+    def print_sample_data(self):
+
+        true_data_len = len(self.raw_data['municipality'])
+
+        try:
+            for key in self.raw_data.keys():
+                assert len(self.raw_data[key]) == true_data_len, f'==== INCORRECT DATA LENGTH: {key} ==== '
+
+            db = pd.DataFrame(self.raw_data)
+            db.drop_duplicates(subset=['municipality', 'month_', 'year_'], keep='first', inplace=True,
+                               ignore_index=True)
+            db['month_'] = db['month_'].apply(NJRParser.month2num)
+            db['year_'] = db['year_'].astype('int64')
+            db['polpr'] = db['polpr'] / 100.0
+
+            print(tabulate(db[list(db.columns)[0:11]], headers=list(db.columns)[0:11]))
+
+            print(f' ==== SAMPLE NJ REALTOR DATA HAS BEEN PRINTED ==== ')
+
+        except AssertionError as e:
+            print(f'{e}')
+            raise AssertionError
+
     def main(self):
 
         print(' ==== EXTRACTING DATA FROM KAFKA ==== ')
@@ -589,17 +611,19 @@ class NJRParser:
                 self.prepare_data(text_data_list, key_list)
                 # print(' ==== TEST CHECKPOINT: SAVING DATA ==== ')
                 print(' ==== SAVING DATA ==== ')
-                # Save raw data to PostgreSQL and replace instance variable with new data container
-                # self.pandas2sql()
+                if self.testing is True:
+                    self.print_sample_data()
+                else:
+                    # Save raw data to PostgreSQL and replace instance variable with new data container
+                    self.pandas2sql()
                 self.raw_data = NJRParser.create_data_dict()
             else:
+                self.consumer.close()
                 break
 
-        self.consumer.close()
 
+if __name__ == '__main__':
 
-# if __name__ == '__main__':
-#
-#     obj = NJRParser()
-#     obj.main()
+    obj = NJRParser(testing=True)
+    obj.main()
 

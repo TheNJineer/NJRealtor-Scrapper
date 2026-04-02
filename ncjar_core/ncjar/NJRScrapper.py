@@ -292,10 +292,10 @@ class Scraper:
                         print(f' ==== {e} ==== ')
                         print(f' ==== {kwargs["key"]} WAS NOT PRODUCED TO KAFKA ==== ')
 
-                    # else:
-                    #     # Block used for debugging purposes
-                    #     print(f' ==== FILE: {kwargs["key"]} TOPIC: {results_metadata.topic} '
-                    #           f'PARTITION: {results_metadata.partition} OFFSET: {results_metadata.offset}')
+                    else:
+                        # Block used for debugging purposes
+                        print(f' ==== FILE: {kwargs["key"]} TOPIC: {results_metadata.topic} '
+                              f'PARTITION: {results_metadata.partition} OFFSET: {results_metadata.offset}')
 
                     self.event_log['data_produced'][-1] += 1
                 else:
@@ -361,8 +361,8 @@ class Scraper:
                     """
 
         try:
-            latest_event = pd.read_sql_query(event_query, self.engine).iloc[-1]  # Use engine.raw_connection() with Airflow
-            latest_data = pd.read_sql_query(data_query, self.engine).iloc[-1]  # Use engine.raw_connection() with Airflow
+            latest_event = pd.read_sql_query(event_query, self.engine).iloc[-1]
+            latest_data = pd.read_sql_query(data_query, self.engine).iloc[-1]
             last_ran_data = latest_event['latest_available_data'].split(' ')
             self.last_ran_month = last_ran_data[0]
             self.last_ran_year = int(last_ran_data[1])
@@ -515,10 +515,10 @@ class Scraper:
             # self.producer.close()
 
 
-# if __name__ == '__main__':
-#
-#     obj = Scraper()
-#     obj.main()
-#
-#     print('Done')
+if __name__ == '__main__':
+
+    obj = Scraper(testing=True)
+    obj.main()
+
+    print('Done')
 

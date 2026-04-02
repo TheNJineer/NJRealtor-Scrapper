@@ -99,6 +99,25 @@ x-airflow-common:
 
 services:
   # yamllint disable rule:line-length
+  # https://hub.docker.com/r/dpage/pgadmin4
+  pgadmin_ncjar:
+    image: dpage/pgadmin4
+    container_name: pgadmin_ncjar
+    ports:
+      # Use the cloud VM’s public IP if deployed remotely for the local port
+      - "8888:80"  # Exposes pgAdmin on http://localhost:5051
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    env_file:
+      - .env
+    networks:
+      - ncjar_network
+    volumes:
+      - pgadmin-user-data_ncjar:/var/lib/pgadmin
+      - ./servers.json:/pgadmin4/servers.json:ro
+      - ./.pgpass:/pgpass:ro
+
   # Multi-broker Apache Kafka Setup. Will need to add more environment variables
   # May need to modify the local hosts ports to the cloud IPs
   # https://hub.docker.com/r/apache/kafka
@@ -651,6 +670,7 @@ networks:
     driver: bridge
 
 volumes:
+  pgadmin-user-data_ncjar:
   postgres-airflow-volume-ncjar:
   broker1-ncjar-data:
   broker2-ncjar-data:
