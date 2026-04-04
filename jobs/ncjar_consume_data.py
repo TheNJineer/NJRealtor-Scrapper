@@ -1,6 +1,7 @@
 import sys
 import argparse
 from ncjar_core.ncjar.NJRParser import NJRParser
+from ncjar_core.ncjar.utility_func import check_pipeline_metadata
 
 
 def parse_args():
@@ -22,6 +23,8 @@ if __name__ == '__main__':
     args = parse_args()
     obj = NJRParser(testing=bool_conversion[args.testing])
     results = obj.main()
+    check_pipeline_metadata("ncjar_pipeline", prop_type_=None,
+                            key_="consumer", status_=results)
 
     print(' ==== DATA EXTRACTION FROM KAFKA IS COMPLETE ==== ')
     sys.exit(0)
