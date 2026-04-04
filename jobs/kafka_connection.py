@@ -10,7 +10,7 @@ def check_kafka_connection():
     if test_producer.bootstrap_connected() is True:
         print(' ==== KAFKA TEST CONNECTION WAS SUCCESSFUL ====  ')
         test_producer.close()
-        return "true"
+        return "true"  # Boolean values cannot be passed through argparse so use str values
 
     else:
         return "false"
