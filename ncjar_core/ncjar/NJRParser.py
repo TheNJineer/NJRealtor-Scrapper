@@ -621,6 +621,8 @@ class NJRParser:
                 self.consumer.close()
                 break
 
+        return True
+
 
 if __name__ == '__main__':
 

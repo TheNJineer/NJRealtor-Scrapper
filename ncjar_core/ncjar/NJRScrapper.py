@@ -500,7 +500,11 @@ class Scraper:
                 self.create_timeframe()
                 logger.info(' ==== STARTING THE DOWNLOAD FOR TARGETED DATA ==== ')
                 self.njr10k(**kwargs)
-                # self.event_log_update(logger)
+                if self.testing is True:
+                    print(' ==== TESTING RUN. EVENT LOG WILL NOT BE SAVED ==== ')
+                    self.event_log_update(logger)
+                else:
+                    self.event_log_update(logger)
 
         except KeyboardInterrupt:
             print()
@@ -512,7 +516,9 @@ class Scraper:
             logger.removeHandler(c_handler)
             logging.shutdown()
             self.producer.flush()
-            # self.producer.close()
+            self.producer.close()
+
+            return True
 
 
 if __name__ == '__main__':
