@@ -81,15 +81,12 @@ def check_pipeline_metadata(pipeline_, prop_type_: str | None, key_=None, status
         # Lock the object and create/revise data
         with lock:
             with shelve.open(metadata_path, writeback=True) as data_file_:
-                pipelines = list(data_file_.keys())
                 vars_['data_file'] = data_file_
 
-                if pipeline_ in pipelines:
-                    create_pipeline_key(**vars_)
-                    update_pipeline_status(**vars_)
-                else:
-                    create_pipeline_key(**vars_)
+                create_pipeline_key(**vars_)
+                update_pipeline_status(**vars_)
                 data_file_.sync()
+
     except Timeout:
         print(f" ==== FILELOCK TIMEOUT. STATUS OF {pipeline_} WAS NOT UPDATED ==== ")
 
@@ -97,7 +94,7 @@ def check_pipeline_metadata(pipeline_, prop_type_: str | None, key_=None, status
 def create_pipeline_metadata(pipeline):
 
     if pipeline == "ncjar_pipeline":
-        return {"latest_data": None, "kafka_connection": False, "producer": False, "data_consumer": False}
+        return {"latest_data": None, "kafka_connection": False, "producer": False, "consumer": False}
 
 
 def create_postgres_connection(con_type: str, db_name: str):
