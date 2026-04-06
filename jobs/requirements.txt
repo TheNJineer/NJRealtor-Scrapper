@@ -5,4 +5,4 @@ fastparquet
 fsspec  # fastparaquet dependency
 pyarrow
 
-git+https://github.com/TheNJineer/NJRealtor-Scrapper.git@v0.1.2#subdirectory=ncjar_core
+git+https://github.com/TheNJineer/NJRealtor-Scrapper.git@v0.1.4#subdirectory=ncjar_core

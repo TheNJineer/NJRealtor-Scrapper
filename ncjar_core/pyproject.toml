@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 requires-python = ">=3.10"
 name = "ncjar"
-version = "0.1.2"
+version = "0.1.4"
 description = "Core NCJAR packages to be used in the Airflow pipeline"
 
 dependencies = [
