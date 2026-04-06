@@ -1,5 +1,5 @@
 import sys
-from ncjar_core.ncjar.utility_func import create_kafka_producer, check_pipeline_metadata
+from ncjar.utility_func import create_kafka_producer, check_pipeline_metadata
 
 
 def check_kafka_connection():

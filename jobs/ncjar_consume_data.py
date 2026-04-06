@@ -1,7 +1,7 @@
 import sys
 import argparse
-from ncjar_core.ncjar.NJRParser import NJRParser
-from ncjar_core.ncjar.utility_func import check_pipeline_metadata
+from ncjar.NJRParser import NJRParser
+from ncjar.utility_func import check_pipeline_metadata
 
 
 def parse_args():
