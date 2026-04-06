@@ -441,6 +441,17 @@ class NJRParser:
 
         return supply_current, supply_per_change
 
+    def generate_true_cols(self):
+
+        query = """
+            SELECT * FROM nj_realtor_basic
+            LIMIT 1;
+        """
+
+        df = pd.read_sql_query(query, con=self.engine)
+
+        return list(df.columns)
+
     def good_data(self, city, data, information):
 
         month = None
@@ -514,9 +525,16 @@ class NJRParser:
             db['year_'] = db['year_'].astype('int64')
             db['polpr'] = db['polpr'] / 100.0
 
-            db.to_sql(table_name, con=self.engine, if_exists='append', chunksize=1000, index=False)
+            try:
+                assert self.generate_true_cols() == list(db.columns)
+                print(f' ==== NEW DATA COLUMNS MATCH TRUE DATA COLUMNS. DATA SAVING ==== ')
+                db.to_sql(table_name, con=self.engine, if_exists='append', chunksize=1000, index=False)
+                print(f' ==== NJ REALTOR DATA HAS BEEN SAVED TO {table_name} IN POSTGRESQL ==== ')
 
-            print(f' ==== NJ REALTOR DATA HAS BEEN SAVED TO {table_name} IN POSTGRESQL ==== ')
+            except AssertionError:
+                # Create a function which corrects the column order
+                print(f' ==== NEW DATA COLUMNS DO NOT MATCH TRUE DATA COLUMNS. DATA NOT SAVED ==== ')
+                pass
 
         except AssertionError as e:
             print(f'{e}')
@@ -581,9 +599,17 @@ class NJRParser:
             db['year_'] = db['year_'].astype('int64')
             db['polpr'] = db['polpr'] / 100.0
 
-            print(tabulate(db[list(db.columns)[0:11]], headers=list(db.columns)[0:11]))
+            try:
+                assert self.generate_true_cols() == list(db.columns)
+                print(f' ==== NEW DATA COLUMNS MATCH TRUE DATA COLUMNS ==== ')
+
+            except AssertionError:
+                # Create a function which corrects the column order
+                print(f' ==== NEW DATA COLUMNS DO NOT MATCH TRUE DATA COLUMNS ==== ')
+                pass
 
             print(f' ==== SAMPLE NJ REALTOR DATA HAS BEEN PRINTED ==== ')
+            print(tabulate(db[list(db.columns)[0:11]], headers=list(db.columns)[0:11]))
 
         except AssertionError as e:
             print(f'{e}')
