@@ -253,17 +253,9 @@ class Scraper:
 
         :return: delta (timedelta object)
         """
-        current = self.run_number
-        previous = current - 1
-        current_date = datetime.now()
-        try:
-            previous_date = datetime.strptime(str(self.last_run_date), "%Y-%m-%d %H:%M:%S+00:00")
 
-        except ValueError:
-            previous_date = Scraper.create_date_object(self.last_run_date)
-
-        delta = current_date - previous_date
-
+        current_date = datetime.now().date()
+        delta = current_date - self.last_run_date.date()
         return delta.days
 
     def download_pdf(self, **kwargs):
@@ -327,9 +319,9 @@ class Scraper:
         db['run_time'] = db['run_time'].astype('str')
 
         db.to_sql(table_name, con=self.engine, if_exists='append', index=False)
-
-        # print(f'==== RUN NUMBER {self.run_number} HAS BEEN SAVED TO {table_name} in POSTGRESQL')
         logger.info(f'==== RUN NUMBER {self.run_number} HAS BEEN SAVED TO {table_name} in POSTGRESQL')
+
+        pprint(self.event_log)
 
     @staticmethod
     def get_key(val, my_dict):
@@ -502,7 +494,6 @@ class Scraper:
                 self.njr10k(**kwargs)
                 if self.testing is True:
                     print(' ==== TESTING RUN. EVENT LOG WILL NOT BE SAVED ==== ')
-                    self.event_log_update(logger)
                 else:
                     self.event_log_update(logger)
 
